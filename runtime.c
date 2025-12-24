@@ -354,11 +354,11 @@ static void copy_vector(int64_t** vector_ptr_loc);
 */
 
 void process_vector(int64_t** scan_addr) {
-  
+
   // Since this tag is already in tospace we know that it isn't
   // a forwarding pointer.
   int64_t tag = **scan_addr;
-  
+
   if (is_vecof(tag)) {
     int len = get_vecof_length(tag);
     int eltsArePointers = get_vecof_ptr_bitfield(tag);
@@ -371,7 +371,7 @@ void process_vector(int64_t** scan_addr) {
       *scan_addr += 1;
     }
   } else {
-    
+
     int len = get_vector_length(tag);
 
     // Find the next vector or the next free_ptr;
@@ -568,7 +568,7 @@ void copy_vector(int64_t** vector_ptr_loc)
 #if 0
       printf("\tto address: %p\n", new_vector_ptr);
 #endif
-      
+
     // The tag we grabbed earlier contains some usefull info for
     // forwarding copying the vector.
     int length = get_vec_length(tag);
@@ -583,7 +583,7 @@ void copy_vector(int64_t** vector_ptr_loc)
     }
     // the free ptr can be updated to point to the next free ptr.
     free_ptr = free_ptr + length + 1;
-    
+
     // We need to set the forwarding pointer in the old_vector
     old_vector_ptr[0] = (int64_t) new_vector_ptr;
 
@@ -706,7 +706,7 @@ void print_vector(int64_t* vector_ptr)
       if ((isPointerBits & 1) == 1 && is_ptr((int64_t*)*scan_ptr)) {
         print_vector(to_ptr((int64_t*)*scan_ptr));
       } else {
-        printf("%lld", (int64_t)*scan_ptr);
+        printf("%ld", (int64_t)*scan_ptr);
       }
       isPointerBits = isPointerBits >> 1;
       scan_ptr += 1;
@@ -823,5 +823,5 @@ int64_t proxy_vec_set(int64_t* vec, int i, int64_t arg) {
   else {
     return proxy_vector_set(vec, i, arg);
   }
-    
+
 }
