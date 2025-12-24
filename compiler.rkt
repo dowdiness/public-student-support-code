@@ -57,14 +57,24 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define counter 0)
+
+(define (fresh-number!)
+  (set! counter (fx+ counter 1))
+  (string->symbol (format ".~a" (number->string counter))))
+
 (define (uniquify-exp env)
   (lambda (e)
     (match e
-      [(Var x)
-       (error "TODO: code goes here (uniquify-exp Var)")]
+      [(Var x) (Var (dict-ref env x))]
       [(Int n) (Int n)]
       [(Let x e body)
-       (error "TODO: code goes here (uniquify-exp Let)")]
+       (let ((new-x (symbol-append x (fresh-number!))))
+         (let ((new-env (dict-set env x new-x)))
+           (Let
+            new-x
+            ((uniquify-exp new-env) e)
+            ((uniquify-exp new-env) body))))]
       [(Prim op es)
        (Prim op (for/list ([e es]) ((uniquify-exp env) e)))])))
 
@@ -103,7 +113,7 @@
 (define compiler-passes
   `(
      ;; Uncomment the following passes as you finish them.
-     ;; ("uniquify" ,uniquify ,interp_Lvar ,type-check-Lvar)
+     ("uniquify" ,uniquify ,interp_Lvar ,type-check-Lvar)
      ;; ("remove complex opera*" ,remove-complex-opera* ,interp_Lvar ,type-check-Lvar)
      ;; ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
      ;; ("instruction selection" ,select-instructions ,interp-pseudo-x86-0)
