@@ -57,19 +57,13 @@
 ;; HW1 Passes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define counter 0)
-
-(define (fresh-number!)
-  (set! counter (fx+ counter 1))
-  (string->symbol (format ".~a" (number->string counter))))
-
 (define (uniquify-exp env)
   (lambda (e)
     (match e
       [(Var x) (Var (dict-ref env x))]
       [(Int n) (Int n)]
       [(Let x e body)
-       (let ((new-x (symbol-append x (fresh-number!))))
+       (let ((new-x (gensym x)))
          (let ((new-env (dict-set env x new-x)))
            (Let
             new-x
@@ -83,9 +77,59 @@
   (match p
     [(Program info e) (Program info ((uniquify-exp '()) e))]))
 
-;; remove-complex-opera* : Lvar -> Lvar^mon
-(define (remove-complex-opera* p)
-  (error "TODO: code goes here (remove-complex-opera*)"))
+;; Helper predicates for monadic normal form
+;; (define (is-atomic? e)
+;;   (match e
+;;     [(Var _) #t]
+;;     [(Int _) #t]
+;;     [_ #f]))
+
+;; rco-atom : exp -> (values (listof (cons symbol exp)) exp)
+;; Returns a list of (temp-var . complex-expr) pairs and an atomic value
+;; If the expression is already atomic, returns empty list and the expression
+(define (rco-atom e)
+  (match e
+    [(Var x) (values '() (Var x))]
+    [(Int n) (values '() (Int n))]
+    [(Let x rhs body)
+     ;; Let is complex, so bind it to a temp
+     (let ([temp (gensym "tmp")])
+       (values (list (cons temp e)) (Var temp)))]
+    [(Prim op es)
+     ;; Prim is complex, so bind it to a temp
+     (let ([temp (gensym "tmp")])
+       (values (list (cons temp e)) (Var temp)))]))
+
+;; build-lets : (listof (cons symbol exp)) exp -> exp
+;; Wraps an expression in a series of let bindings
+(define (build-lets bindings body)
+  (match bindings
+    ['() body]
+    [(cons (cons temp expr) rest)
+     (Let temp (rco-exp expr) (build-lets rest body))]))
+
+;; Main traversal for removing complex operands
+(define (rco-exp e)
+  (match e
+    [(Var x) (Var x)]
+    [(Int n) (Int n)]
+    [(Let x rhs body)
+     (Let x (rco-exp rhs) (rco-exp body))]
+    [(Prim op es)
+     ;; Process all arguments using rco-atom
+     ;; Collect bindings and atomic values
+      (define results (for/list ([arg es])
+                        (define-values (arg-binds arg-atom) (rco-atom arg))
+                        (cons arg-binds arg-atom)))
+        (let* ([body (Prim op (map cdr results))] [bindings (append* (map car results))])
+        (build-lets bindings body))]
+    [_ (error "rco-exp: unexpected expression: ~a" e)]))
+
+;; remove_complex_opera* : Lvar -> Lvar^mon
+;; transform to monadic normal form
+(define (remove_complex_opera* p)
+  (match p
+    [(Program info e) (Program info (rco-exp e))]))
 
 ;; explicate-control : Lvar^mon -> Cvar
 (define (explicate-control p)
@@ -112,12 +156,12 @@
 ;; must be named "compiler.rkt"
 (define compiler-passes
   `(
-     ;; Uncomment the following passes as you finish them.
-     ("uniquify" ,uniquify ,interp_Lvar ,type-check-Lvar)
-     ;; ("remove complex opera*" ,remove-complex-opera* ,interp_Lvar ,type-check-Lvar)
-     ;; ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
-     ;; ("instruction selection" ,select-instructions ,interp-pseudo-x86-0)
-     ;; ("assign homes" ,assign-homes ,interp-x86-0)
-     ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
-     ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
-     ))
+      ;; Uncomment the following passes as you finish them.
+      ("uniquify" ,uniquify ,interp_Lvar ,type-check-Lvar)
+      ("remove complex operands" ,remove_complex_opera* ,interp_Lvar ,type-check-Lvar)
+      ;; ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
+      ;; ("instruction selection" ,select-instructions ,interp-pseudo-x86-0)
+      ;; ("assign homes" ,assign-homes ,interp-x86-0)
+      ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
+      ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
+      ))
