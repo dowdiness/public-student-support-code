@@ -78,11 +78,11 @@
     [(Program info e) (Program info ((uniquify-exp '()) e))]))
 
 ;; Helper predicates for monadic normal form
-;; (define (is-atomic? e)
-;;   (match e
-;;     [(Var _) #t]
-;;     [(Int _) #t]
-;;     [_ #f]))
+(define (is-atomic? e)
+  (match e
+    [(Var _) #t]
+    [(Int _) #t]
+    [_ #f]))
 
 ;; rco-atom : exp -> (values (listof (cons symbol exp)) exp)
 ;; Returns a list of (temp-var . complex-expr) pairs and an atomic value
@@ -155,9 +155,110 @@
   (match p
     [(Program info body) (CProgram info (list (cons 'start (explicate_tail body))))]))
 
+(define (is-expr? e)
+  (match e
+    [(? is-atomic?) #t]
+    [(Prim _ es) (andmap is-expr? es)]
+    [_ #f]))
+
+(define (select-atom e)
+  (match e
+    [(Var x) (Var x)]
+    [(Int n) (Imm n)]
+    [_ (error "select-atom: unexpected expression: " e)]))
+
+; (define (select-exp e)
+;   (match e
+;     [(Var x) (Var x)]
+;     [(Int n) (Imm n)]
+;     [(Prim 'read '())
+;       (list (Callq 'read_int 0)
+;             (Instr 'movq (list (Reg 'rax) (Var 'x))))]
+;     [_ (error "select-exp: unexpected expression: " e)]))
+
+(define (select-stmt s)
+  (match s
+    ; atom
+    [(? is-atomic? atom) (select-atom atom)]
+    ; exp
+    [(Prim 'read '())
+     (list (Callq 'read_int 0)
+           (Instr 'movq (list (Reg 'rax) (Var 'x))))]
+    [(Prim '- (list (Int n))) (list (Instr 'negq (list (Imm n))))]
+    [(Prim '- (list (Var x))) (list (Instr 'negq (list (Var x))))]
+    [(Prim '+ (list (Int n1) (Int n2)))
+     (list (Instr 'movq (list (Imm n1) (Reg 'rax)))
+           (Instr 'addq (list (Imm n2) (Reg 'rax))))]
+    [(Prim '+ (list (Var x) (Int n)))
+     (list (Instr 'movq (list (Var x) (Reg 'rax)))
+           (Instr 'addq (list (Imm n) (Reg 'rax))))]
+    [(Prim '+ (list (Int n) (Var x)))
+     (list (Instr 'movq (list (Imm n) (Reg 'rax)))
+           (Instr 'addq (list (Var x) (Reg 'rax))))]
+    [(Prim '+ (list (Var n1) (Var n2)))
+     (list (Instr 'movq (list (Var n1) (Reg 'rax)))
+           (Instr 'addq (list (Var n2) (Reg 'rax))))]
+    ; stmt
+    [(Assign (Var x) (Int n))
+     (list (Instr 'movq (list (Imm n) (Var x))))]
+    [(Assign (Var x) (Var y))
+     (list (Instr 'movq (list (Var y) (Var x))))]
+    [(Assign (Var x) (Prim 'read '()))
+     (list (Callq 'read_int 0)
+           (Instr 'movq (list (Reg 'rax) (Var x))))]
+    [(Assign (Var x) (Prim '- (list (Int n))))
+     (list (Instr 'movq (list (Imm n) (Var x)))
+           (Instr 'negq (list (Var x))))]
+    [(Assign (Var x) (Prim '- (list (Var y))))
+     (list (Instr 'movq (list (Var y) (Var x)))
+           (Instr 'negq (list (Var x))))]
+    [(Assign (Var x) (Prim '- (list (Int n1) (Int n2))))
+     (list (Instr 'movq (list (Imm n1) (Var x)))
+           (Instr 'subq (list (Imm n2) (Var x))))]
+    [(Assign (Var x) (Prim '- (list (Var y) (Int n))))
+     (list (Instr 'movq (list (Var y) (Var x)))
+           (Instr 'subq (list (Imm n) (Var x))))]
+    [(Assign (Var x) (Prim '- (list (Int n) (Var y))))
+     (list (Instr 'movq (list (Imm n) (Var x)))
+           (Instr 'subq (list (Var y) (Var x))))]
+    [(Assign (Var x) (Prim '- (list (Var y) (Var z))))
+     (list (Instr 'movq (list (Var y) (Var x)))
+           (Instr 'subq (list (Var z) (Var x))))]
+    [(Assign (Var x) (Prim '+ (list (Int n1) (Int n2))))
+     (list (Instr 'movq (list (Imm n1) (Var x)))
+           (Instr 'addq (list (Imm n2) (Var x))))]
+    [(Assign (Var x) (Prim '+ (list (Var y) (Int n))))
+     (list (Instr 'movq (list (Var y) (Var x)))
+           (Instr 'addq (list (Imm n) (Var x))))]
+    [(Assign (Var x) (Prim '+ (list (Int n) (Var y))))
+     (list (Instr 'movq (list (Imm n) (Var x)))
+           (Instr 'addq (list (Var y) (Var x))))]
+    [(Assign (Var x) (Prim '+ (list (Var y) (Var z))))
+     (list (Instr 'movq (list (Var y) (Var x)))
+           (Instr 'addq (list (Var z) (Var x))))]
+    [_ (error "select-stmt: unexpected statement: " s)]))
+
+(define (select-tail t)
+  (match t
+    [(Return e)
+     (if (is-atomic? e)
+         (list (Instr 'movq (list (select-atom e) (Reg 'rax)))
+               (Jmp 'conclusion))
+         (append (select-stmt e)
+                 (list (Jmp 'conclusion))))]
+    [(Seq s t)
+     (append (select-stmt s) (select-tail t))]
+    [_ (error "select-tail: unexpected tail: " t)]))
+
 ;; select-instructions : Cvar -> x86var
 (define (select-instructions p)
-  (error "TODO: code goes here (select-instructions)"))
+  (match p
+    [(CProgram info blocks)
+     (X86Program info
+       (for/list ([block blocks])
+         (match block
+           [(cons label tail)
+            (cons label (Block '() (select-tail tail)))])))]))
 
 ;; assign-homes : x86var -> x86var
 (define (assign-homes p)
@@ -180,7 +281,7 @@
       ("uniquify" ,uniquify ,interp_Lvar ,type-check-Lvar)
       ("remove complex operands" ,remove_complex_opera* ,interp_Lvar ,type-check-Lvar)
       ("explicate control" ,explicate-control ,interp-Cvar ,type-check-Cvar)
-      ;; ("instruction selection" ,select-instructions ,interp-pseudo-x86-0)
+      ("instruction selection" ,select-instructions ,interp-pseudo-x86-0)
       ;; ("assign homes" ,assign-homes ,interp-x86-0)
       ;; ("patch instructions" ,patch-instructions ,interp-x86-0)
       ;; ("prelude-and-conclusion" ,prelude-and-conclusion ,interp-x86-0)
